@@ -8,6 +8,28 @@ input { border: 1px solid green; width: 30px; }
 </style>
 <script>
 
+  EventEmitter = function() {
+    this.events = {/* hash of array of function */};
+  };
+
+  EventEmitter.prototype.on = function(name, callback) {
+    this.events[name] = this.events[name] || [];
+    this.events[name].push(callback);
+  };
+
+  EventEmitter.prototype.unsubscribe = function(name) {
+    this.events[name] = [];
+  };
+
+  EventEmitter.prototype.emit = function(name, data) {
+    const event = this.events[name];
+    if (event) event.forEach((callback) => {
+      callback(data);
+    });
+  };
+
+  const emitter = new EventEmitter();
+
   let table = document.getElementById('table');
   let cells = {};
   let letters = ['A', 'B', 'C', 'D', 'E', 'F'];
@@ -34,10 +56,43 @@ input { border: 1px solid green; width: 30px; }
   }
 
   function keyup(event) {
+    const cellId = event.target.id;
+    const value = event.target.value;
+
+    if (event.keyCode === 13) {
+      setFormula(event.target, cellId, value);
+    }
+    emitter.emit(cellId, value);
     socket.send(JSON.stringify({
-      cell: event.target.id,
-      value: event.target.value
+      cell: cellId,
+      value: value
     }));
+  }
+
+  function setFormula(target, cellId, value) {
+    const match = value.match(/^=(.*)$/i);
+    if (match) {
+      const formula = match[1];
+      const re = /([A-Z][0-9]+)/g;
+      const sourceCells = formula.match(re);
+      if (sourceCells) {
+        target.value = calculateFormula(formula);
+        sourceCells.map((cellName) => {
+          emitter.on(cellName, (data) => {
+            target.value = calculateFormula(formula);
+          });
+        });
+      }
+    }
+  }
+
+  function calculateFormula(formula) {
+    const cells = formula.match(/([A-Z][0-9]+)/g);
+    cells.forEach(cell => {
+      const value = document.getElementById(cell).value || 0;
+      formula = formula.replace(cell, value);
+    })
+    return eval(formula);
   }
 
   let socket = new WebSocket('ws://127.0.0.1/');
